@@ -206,7 +206,7 @@ export default function Home() {
           <div className="flex flex-col lg:flex-row gap-6">
             {/* Main Content Area */}
             <div className="lg:w-3/4">
-              <h1 className="text-3xl font-bold mb-2">Welcome to RealWorldCode</h1>
+              <h1 className="text-3xl font-bold mb-2">Welcome to Codura</h1>
               <p className="text-muted-foreground mb-6">
                 Master coding with real-world challenges and structured learning paths
               </p>

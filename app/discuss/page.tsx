@@ -26,7 +26,7 @@ import {
   AlertTriangle,
   Lightbulb,
 } from "lucide-react"
-import { motion } from "framer-motion"
+import { motion, type Variants } from "framer-motion"
 import Link from "next/link"
 
 export default function DiscussPage() {
@@ -35,7 +35,7 @@ export default function DiscussPage() {
   const [activeCategory, setActiveCategory] = useState("all")
 
   // Animation variants
-  const containerVariants = {
+  const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: {
       opacity: 1,
@@ -45,7 +45,7 @@ export default function DiscussPage() {
     },
   }
 
-  const itemVariants = {
+  const itemVariants: Variants = {
     hidden: { y: 20, opacity: 0 },
     visible: {
       y: 0,
@@ -244,7 +244,7 @@ export default function DiscussPage() {
 }
 
 function DiscussionCard({ discussion, index }: { discussion: any; index: number }) {
-  const itemVariants = {
+  const itemVariants: Variants = {
     hidden: { y: 20, opacity: 0 },
     visible: {
       y: 0,

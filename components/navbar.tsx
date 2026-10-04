@@ -66,7 +66,7 @@ export default function Navbar() {
         <div className="flex items-center gap-6">
           <Link href="/" className="flex items-center gap-2">
             <Code className="h-8 w-8 text-accent-orange" />
-            <span className="text-xl font-bold">RealWorldCode</span>
+            <span className="text-xl font-bold">Codura</span>
           </Link>
 
           <nav className="hidden md:flex items-center gap-6">

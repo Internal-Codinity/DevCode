@@ -346,7 +346,7 @@ export default function HackathonDetailPage() {
                 <CardContent className="prose prose-invert max-w-none">
                   <h3>Eligibility</h3>
                   <ul>
-                    <li>Open to all registered users of RealWorldCode</li>
+                    <li>Open to all registered users of Codura</li>
                     <li>Participants can compete individually or in teams of up to {hackathon.maxTeamSize} people</li>
                     <li>All team members must be registered on the platform</li>
                   </ul>

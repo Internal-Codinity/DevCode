@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast"
 export default function ProblemCategoryList() {
   const { toast } = useToast()
 
-  const handleCategoryClick = (category) => {
+  const handleCategoryClick = (category: (typeof categories)[number]) => {
     // In a real app, this would navigate to the category page
     // For now, we'll show a toast notification
     toast({

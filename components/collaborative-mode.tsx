@@ -147,7 +147,7 @@ export default function CollaborativeMode() {
   }
 
   const handleCopyInviteLink = () => {
-    navigator.clipboard.writeText("https://realworldcode.com/collaborate/abc123")
+    navigator.clipboard.writeText("https://Codura.com/collaborate/abc123")
     toast({
       title: "Invite link copied",
       description: "The collaboration link has been copied to your clipboard.",
@@ -415,7 +415,7 @@ export default function CollaborativeMode() {
             </Button>
           </div>
           <div className="flex gap-2">
-            <Input value="https://realworldcode.com/collaborate/abc123" readOnly className="text-sm" />
+            <Input value="https://Codura.com/collaborate/abc123" readOnly className="text-sm" />
             <Button variant="outline" size="sm" onClick={handleCopyInviteLink}>
               Copy
             </Button>
@@ -454,7 +454,7 @@ export default function CollaborativeMode() {
                 <div>
                   <label className="text-sm font-medium">Or share this link</label>
                   <div className="flex gap-2 mt-1">
-                    <Input value="https://realworldcode.com/collaborate/abc123" readOnly />
+                    <Input value="https://Codura.com/collaborate/abc123" readOnly />
                     <Button variant="outline" onClick={handleCopyInviteLink}>
                       <Copy className="h-4 w-4" />
                     </Button>

@@ -26,7 +26,7 @@ import {
   Calendar,
   Users,
 } from "lucide-react"
-import { motion } from "framer-motion"
+import { motion, type Variants } from "framer-motion"
 import { problemsData } from "@/data/problems"
 import { tracksData } from "@/data/tracks"
 
@@ -38,7 +38,7 @@ export default function ExplorePage() {
   const [trendingProblems, setTrendingProblems] = useState<typeof problemsData>([])
 
   // Animation variants
-  const containerVariants = {
+  const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: {
       opacity: 1,
@@ -48,7 +48,7 @@ export default function ExplorePage() {
     },
   }
 
-  const itemVariants = {
+  const itemVariants: Variants = {
     hidden: { y: 20, opacity: 0 },
     visible: {
       y: 0,
@@ -104,7 +104,7 @@ export default function ExplorePage() {
           <div className="max-w-3xl">
             <Badge className="mb-4 bg-purple-500/20 text-purple-300 border-purple-500/30 px-3 py-1 text-sm">
               <Sparkles className="mr-1 h-3.5 w-3.5" />
-              Explore RealWorldCode
+              Explore Codura
             </Badge>
             <h1 className="text-4xl md:text-5xl font-bold mb-4">Discover, Learn, and Master Real-World Coding</h1>
             <p className="text-lg text-gray-300 mb-6">

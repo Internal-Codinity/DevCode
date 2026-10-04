@@ -9,14 +9,15 @@ export interface Problem {
   exampleInput?: string
   exampleOutput?: string
   constraints?: string[]
+  sampleTests?: {
+    name: string
+    input: string
+    expected: string
+  }[]
   stats?: {
     acceptanceRate: string
     submissions: number
     difficultyRating: number
     avgTimeToSolve: string
   }
-  testCases?: {
-    type: string
-    passes: boolean
-  }[]
 }

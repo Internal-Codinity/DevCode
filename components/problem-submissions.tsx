@@ -1,277 +1,80 @@
 "use client"
 
-import { useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useCallback, useEffect, useState } from "react"
+import { Clock3, RefreshCw } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { CheckCircle, XCircle, Clock, ArrowUpDown, Eye } from "lucide-react"
-import type { Problem } from "@/types/problem"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
-interface ProblemSubmissionsProps {
-  problem: Problem
+interface Submission {
+  id: string
+  language: string
+  judgeScope: "sample" | "all"
+  status: string
+  verdictMessage: string | null
+  testsTotal: number
+  testsPassed: number
+  runtimeMs: number | null
+  memoryKb: number | null
+  createdAt: string
 }
 
-export default function ProblemSubmissions({ problem }: ProblemSubmissionsProps) {
-  const [activeTab, setActiveTab] = useState("all")
+export default function ProblemSubmissions({ problemId, refreshToken = 0 }: { problemId: string; refreshToken?: number }) {
+  const [submissions, setSubmissions] = useState<Submission[]>([])
+  const [state, setState] = useState<"loading" | "ready" | "signed-out" | "error">("loading")
 
-  // Mock submission data
-  const submissions = [
-    {
-      id: "sub-1",
-      status: "Accepted",
-      language: "Python",
-      runtime: "125 ms",
-      memory: "16.2 MB",
-      timestamp: "2 hours ago",
-      code: `import requests
-from bs4 import BeautifulSoup
-import json
-import time
-import random
+  const load = useCallback(async (signal?: AbortSignal) => {
+    setState("loading")
+    try {
+      const response = await fetch(`/api/submissions?problemId=${encodeURIComponent(problemId)}`, { cache: "no-store", signal })
+      if (signal?.aborted) return
+      if (response.status === 401) {
+        setSubmissions([])
+        setState("signed-out")
+        return
+      }
+      const payload = await response.json() as { submissions?: Submission[] }
+      if (!response.ok) throw new Error()
+      setSubmissions(payload.submissions ?? [])
+      setState("ready")
+    } catch {
+      if (!signal?.aborted) setState("error")
+    }
+  }, [problemId])
 
-class AmazonScraper:
-    def __init__(self, proxy_list=None):
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-        }
-        self.proxy_list = proxy_list or []
-        self.results = []
-    
-    def get_proxy(self):
-        if not self.proxy_list:
-            return None
-        return random.choice(self.proxy_list)
-    
-    def scrape_product(self, product_id):
-        url = f"https://www.amazon.com/dp/{product_id}"
-        proxy = self.get_proxy()
-        proxies = {"http": proxy, "https": proxy} if proxy else None
-        
-        try:
-            response = requests.get(url, headers=self.headers, proxies=proxies, timeout=10)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.content, 'html.parser')
-                
-                # Extract product details
-                title_element = soup.select_one('#productTitle')
-                price_element = soup.select_one('.a-price .a-offscreen')
-                rating_element = soup.select_one('#acrPopover')
-                reviews_count_element = soup.select_one('#acrCustomerReviewText')
-                
-                title = title_element.get_text().strip() if title_element else "N/A"
-                price = price_element.get_text().strip() if price_element else "N/A"
-                rating = rating_element.get('title').strip() if rating_element and 'title' in rating_element.attrs else "N/A"
-                reviews_count = reviews_count_element.get_text().strip() if reviews_count_element else "N/A"
-                
-                return {
-                    "product_id": product_id,
-                    "title": title,
-                    "price": price,
-                    "rating": rating,
-                    "reviews_count": reviews_count,
-                    "url": url
-                }
-            else:
-                print(f"Failed to fetch product {product_id}: Status code {response.status_code}")
-                return None
-        except Exception as e:
-            print(f"Error scraping product {product_id}: {str(e)}")
-            return None
-    
-    def scrape_products(self, product_ids, rate_limit=2):
-        for product_id in product_ids:
-            print(f"Scraping product: {product_id}")
-            product_data = self.scrape_product(product_id)
-            if product_data:
-                self.results.append(product_data)
-                print(f"Extracted: \"{product_data['title']}\"")
-                print(f"Price: {product_data['price']}")
-                print(f"Rating: {product_data['rating']} ({product_data['reviews_count']})")
-            
-            # Apply rate limiting
-            if rate_limit > 0 and product_id != product_ids[-1]:
-                sleep_time = 1 / rate_limit
-                print(f"Waiting {sleep_time} seconds before next request...")
-                time.sleep(sleep_time)
-        
-        # Save results to JSON file
-        with open('amazon_products.json', 'w') as f:
-            json.dump(self.results, f, indent=2)
-        
-        print(f"Scraped {len(self.results)} products successfully")
-        print(f"Data saved to 'amazon_products.json'")
-        
-        return self.results
-
-# Example usage
-if __name__ == "__main__":
-    # Sample proxy list (replace with actual proxies if available)
-    proxies = [
-        "http://proxy1.example.com:8080",
-        "http://proxy2.example.com:8080",
-    ]
-    
-    # Sample product IDs to scrape
-    product_ids = ["B08N5KWB9H", "B07QDYSSF5"]
-    
-    scraper = AmazonScraper(proxy_list=proxies)
-    scraper.scrape_products(product_ids, rate_limit=0.5)  # 1 request per 2 seconds`,
-    },
-    {
-      id: "sub-2",
-      status: "Wrong Answer",
-      language: "JavaScript",
-      runtime: "145 ms",
-      memory: "42.8 MB",
-      timestamp: "1 day ago",
-      code: `// Failed submission with bugs`,
-    },
-    {
-      id: "sub-3",
-      status: "Time Limit Exceeded",
-      language: "Python",
-      runtime: "N/A",
-      memory: "18.1 MB",
-      timestamp: "2 days ago",
-      code: `# Inefficient implementation that timed out`,
-    },
-  ]
-
-  const [selectedSubmission, setSelectedSubmission] = useState<string | null>(null)
-
-  const filteredSubmissions =
-    activeTab === "all"
-      ? submissions
-      : activeTab === "accepted"
-        ? submissions.filter((sub) => sub.status === "Accepted")
-        : submissions.filter((sub) => sub.status !== "Accepted")
+  useEffect(() => {
+    const controller = new AbortController()
+    // Delay the initial request until after paint. The component is already in
+    // its loading state, and this avoids synchronously cascading an effect.
+    const timer = window.setTimeout(() => void load(controller.signal), 0)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [load, refreshToken])
 
   return (
-    <div className="space-y-4">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="bg-card w-full">
-          <TabsTrigger value="all" className="flex-1">
-            All Submissions
-          </TabsTrigger>
-          <TabsTrigger value="accepted" className="flex-1">
-            Accepted
-          </TabsTrigger>
-          <TabsTrigger value="failed" className="flex-1">
-            Failed
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
-
-      {selectedSubmission ? (
-        <div className="space-y-4">
-          <div className="flex justify-between">
-            <Button variant="outline" size="sm" onClick={() => setSelectedSubmission(null)}>
-              Back to Submissions
-            </Button>
-            <Badge className={getStatusColor(submissions.find((s) => s.id === selectedSubmission)?.status || "")}>
-              {submissions.find((s) => s.id === selectedSubmission)?.status}
-            </Badge>
-          </div>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Submission Details</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                <div>
-                  <p className="text-sm text-muted">Language</p>
-                  <p className="font-medium">{submissions.find((s) => s.id === selectedSubmission)?.language}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted">Runtime</p>
-                  <p className="font-medium">{submissions.find((s) => s.id === selectedSubmission)?.runtime}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted">Memory</p>
-                  <p className="font-medium">{submissions.find((s) => s.id === selectedSubmission)?.memory}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted">Submitted</p>
-                  <p className="font-medium">{submissions.find((s) => s.id === selectedSubmission)?.timestamp}</p>
-                </div>
-              </div>
-
-              <div className="font-mono text-sm bg-card/50 p-4 rounded-lg overflow-auto max-h-[400px]">
-                <pre>
-                  <code>{submissions.find((s) => s.id === selectedSubmission)?.code}</code>
-                </pre>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      ) : (
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex justify-between items-center">
-              <CardTitle className="text-lg">Your Submissions</CardTitle>
-              <Button variant="outline" size="sm">
-                <ArrowUpDown className="mr-1 h-4 w-4" />
-                Sort by Date
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {filteredSubmissions.length > 0 ? (
-              <div className="space-y-2">
-                {filteredSubmissions.map((submission) => (
-                  <div
-                    key={submission.id}
-                    className="flex items-center justify-between p-3 bg-card rounded-lg hover:bg-card/80 cursor-pointer"
-                    onClick={() => setSelectedSubmission(submission.id)}
-                  >
-                    <div className="flex items-center gap-3">
-                      {submission.status === "Accepted" ? (
-                        <CheckCircle className="h-5 w-5 text-green-500" />
-                      ) : submission.status === "Wrong Answer" ? (
-                        <XCircle className="h-5 w-5 text-red-500" />
-                      ) : (
-                        <Clock className="h-5 w-5 text-yellow-500" />
-                      )}
-                      <div>
-                        <Badge className={getStatusColor(submission.status)}>{submission.status}</Badge>
-                        <div className="flex gap-4 mt-1 text-sm text-muted">
-                          <span>{submission.language}</span>
-                          <span>{submission.runtime}</span>
-                          <span>{submission.memory}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm text-muted">{submission.timestamp}</span>
-                      <Button variant="ghost" size="icon">
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted">No submissions found in this category.</div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-    </div>
+    <Card>
+      <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+        <div><CardTitle>Submission history</CardTitle><CardDescription>Durable judge records for your account.</CardDescription></div>
+        <Button variant="outline" size="sm" onClick={() => void load()}><RefreshCw className="mr-1 h-4 w-4" />Refresh</Button>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {state === "loading" ? <p className="text-sm text-muted">Loading submissions…</p> : null}
+        {state === "signed-out" ? <p className="text-sm text-muted">Sign in to view your submission history.</p> : null}
+        {state === "error" ? <p className="text-sm text-destructive">Submission history is temporarily unavailable.</p> : null}
+        {state === "ready" && submissions.length === 0 ? <p className="rounded-md border border-dashed p-5 text-center text-sm text-muted">No submissions for this problem yet.</p> : null}
+        {state === "ready" && submissions.map((submission) => <article key={submission.id} className="rounded-md border p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex flex-wrap items-center gap-2"><Status status={submission.status} /><Badge variant="outline">{submission.language}</Badge><Badge variant="outline">{submission.judgeScope === "all" ? "Full judge" : "Samples"}</Badge></div><span className="flex items-center gap-1 text-xs text-muted"><Clock3 className="h-3.5 w-3.5" />{new Date(submission.createdAt).toLocaleString()}</span></div>
+          <p className="mt-2 text-sm">{submission.testsPassed} / {submission.testsTotal} tests passed{submission.runtimeMs !== null ? ` · ${submission.runtimeMs} ms` : ""}{submission.memoryKb !== null ? ` · ${(submission.memoryKb / 1024).toFixed(1)} MB` : ""}</p>
+          {submission.verdictMessage ? <p className="mt-1 text-xs text-muted">{submission.verdictMessage}</p> : null}
+        </article>)}
+      </CardContent>
+    </Card>
   )
 }
 
-function getStatusColor(status: string) {
-  switch (status) {
-    case "Accepted":
-      return "bg-green-500/20 text-green-500 hover:bg-green-500/30"
-    case "Wrong Answer":
-      return "bg-red-500/20 text-red-500 hover:bg-red-500/30"
-    case "Time Limit Exceeded":
-      return "bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30"
-    default:
-      return "bg-blue-500/20 text-blue-500 hover:bg-blue-500/30"
-  }
+function Status({ status }: { status: string }) {
+  const styles: Record<string, string> = { accepted: "bg-green-500/20 text-green-500", queued: "bg-yellow-500/20 text-yellow-500", running: "bg-blue-500/20 text-blue-500", wrong_answer: "bg-red-500/20 text-red-500", runtime_error: "bg-red-500/20 text-red-500", time_limit_exceeded: "bg-red-500/20 text-red-500", cancelled: "bg-slate-500/20 text-slate-400", internal_error: "bg-red-500/20 text-red-500" }
+  return <Badge className={styles[status] ?? styles.internal_error}>{status.replaceAll("_", " ")}</Badge>
 }

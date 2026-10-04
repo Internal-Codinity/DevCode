@@ -33,7 +33,7 @@ import {
   Activity,
 } from "lucide-react"
 import Link from "next/link"
-import { motion } from "framer-motion"
+import { motion, type Variants } from "framer-motion"
 
 // Import chart components
 import {
@@ -262,7 +262,7 @@ export default function ProfilePage() {
   }, [])
 
   // Animation variants
-  const containerVariants = {
+  const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: {
       opacity: 1,
@@ -272,7 +272,7 @@ export default function ProfilePage() {
     },
   }
 
-  const itemVariants = {
+  const itemVariants: Variants = {
     hidden: { y: 20, opacity: 0 },
     visible: {
       y: 0,
@@ -567,7 +567,7 @@ export default function ProfilePage() {
             <Card>
               <CardHeader>
                 <CardTitle>Activity Feed</CardTitle>
-                <CardDescription>Your recent activity on RealWorldCode</CardDescription>
+                <CardDescription>Your recent activity on Codura</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -617,7 +617,7 @@ export default function ProfilePage() {
                         <div key={index} className="flex justify-between p-3 bg-card rounded-md">
                           <div>
                             <Link
-                              href={`/problems/${activity.problem.toLowerCase().replace(/\s+/g, "-")}`}
+                              href={`/problems/${(activity.problem ?? "unknown").toLowerCase().replace(/\s+/g, "-")}`}
                               className="font-medium hover:text-accent-blue"
                             >
                               {activity.problem}
@@ -853,7 +853,7 @@ export default function ProfilePage() {
                           outerRadius={80}
                           fill="#8884d8"
                           dataKey="value"
-                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                          label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
                         >
                           {problemTypeData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -1116,7 +1116,7 @@ function ActivityItem({ activity }: { activity: any }) {
           <p className="text-sm">
             Solved{" "}
             <Link
-              href={`/problems/${activity.problem.toLowerCase().replace(/\s+/g, "-")}`}
+              href={`/problems/${(activity.problem ?? "unknown").toLowerCase().replace(/\s+/g, "-")}`}
               className="font-medium hover:text-accent-blue"
             >
               {activity.problem}
@@ -1174,7 +1174,7 @@ function ActivityItem({ activity }: { activity: any }) {
           <p className="text-sm">
             Commented on{" "}
             <Link
-              href={`/problems/${activity.problem.toLowerCase().replace(/\s+/g, "-")}`}
+              href={`/problems/${(activity.problem ?? "unknown").toLowerCase().replace(/\s+/g, "-")}`}
               className="font-medium hover:text-accent-blue"
             >
               {activity.problem}

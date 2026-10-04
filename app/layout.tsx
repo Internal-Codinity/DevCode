@@ -27,7 +27,7 @@ const jetbrainsMono = JetBrains_Mono({
 })
 
 export const metadata = {
-  title: "RealWorldCode - Solve Real-World Coding Challenges",
+  title: "Codura - Solve Real-World Coding Challenges",
   description: "Practice and master real-world coding challenges from web scraping to system design",
     generator: 'v0.app'
 }

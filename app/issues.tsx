@@ -108,7 +108,7 @@ export default function IssuesPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Bug className="h-5 w-5" />
-            RealWorldCode Issues & Fixes
+            Codura Issues & Fixes
           </CardTitle>
           <CardDescription>
             We've identified and fixed the following issues to improve the user experience

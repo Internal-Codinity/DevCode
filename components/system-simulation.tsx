@@ -1,717 +1,313 @@
 "use client"
 
-import type React from "react"
-
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
+import { AlertTriangle, CheckCircle, Cpu, FileText, HardDrive, Network, Play, Square, Terminal } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { useState, useEffect, useRef } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import {
-  Terminal,
-  AlertTriangle,
-  CheckCircle,
-  XCircle,
-  Cpu,
-  HardDrive,
-  Network,
-  FileText,
-  Settings,
-  Clock,
-  BarChart,
-} from "lucide-react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
+import type { ExecutionEvent, ExecutionLanguage, ExecutionMetrics, JobStatus, ResourceLimits } from "@/lib/execution/contracts"
 
-interface SystemMetric {
-  name: string
-  value: number
-  max: number
-  unit: string
-  icon: React.ReactNode
+interface SystemSimulationProps {
+  problemId: string
+  code?: string
+  language?: ExecutionLanguage
 }
 
+type LogLevel = "info" | "warning" | "error" | "success"
+
 interface LogEntry {
-  timestamp: Date
-  level: "info" | "warning" | "error" | "success"
+  timestamp: string
+  level: LogLevel
   message: string
 }
 
-interface SimulationStatus {
-  status: "idle" | "running" | "paused" | "completed" | "failed"
-  startTime?: Date
-  endTime?: Date
-  exitCode?: number
-  errorMessage?: string
+const prompt = "runner@Codura:~/workspace$"
+const initialMetrics: ExecutionMetrics = {
+  cpuPercent: 0,
+  memoryMb: 0,
+  memoryLimitMb: 256,
+  networkBytes: 0,
+  diskBytes: 0,
 }
+const initialCode = 'print("Connect this panel to the current editor submission.")\n'
 
-export default function SystemSimulation() {
-  const [environment, setEnvironment] = useState("linux")
-  const [simulationStatus, setSimulationStatus] = useState<SimulationStatus>({ status: "idle" })
-  const [logs, setLogs] = useState<LogEntry[]>([])
-  const [metrics, setMetrics] = useState<SystemMetric[]>([
-    { name: "CPU Usage", value: 0, max: 100, unit: "%", icon: <Cpu className="h-4 w-4 text-accent-blue" /> },
-    {
-      name: "Memory Usage",
-      value: 0,
-      max: 1024,
-      unit: "MB",
-      icon: <HardDrive className="h-4 w-4 text-accent-purple" />,
-    },
-    { name: "Network I/O", value: 0, max: 10, unit: "MB/s", icon: <Network className="h-4 w-4 text-accent-orange" /> },
-    { name: "Disk I/O", value: 0, max: 100, unit: "MB/s", icon: <HardDrive className="h-4 w-4 text-green-500" /> },
-  ])
+export default function SystemSimulation({ problemId, code = initialCode, language = "python" }: SystemSimulationProps) {
+  const [status, setStatus] = useState<JobStatus | "idle">("idle")
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [history, setHistory] = useState<string[]>([])
   const [terminalInput, setTerminalInput] = useState("")
-  const [terminalHistory, setTerminalHistory] = useState<string[]>([
-    "user@realworldcode:~/workspace$ ls -la",
-    "total 20",
-    "drwxr-xr-x 4 user user 4096 May 14 12:54 .",
-    "drwxr-xr-x 3 user user 4096 May 14 12:50 ..",
-    "-rw-r--r-- 1 user user 2184 May 14 12:52 solution.py",
-    "-rw-r--r-- 1 user user 1024 May 14 12:53 test_data.json",
-    "drwxr-xr-x 2 user user 4096 May 14 12:51 .git",
-    "user@realworldcode:~/workspace$ _",
-  ])
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [metrics, setMetrics] = useState(initialMetrics)
+  const [progress, setProgress] = useState(0)
   const [activeTab, setActiveTab] = useState("console")
-  const [simulationProgress, setSimulationProgress] = useState(0)
-  const [resourceLimits, setResourceLimits] = useState({
-    cpu: 100, // percentage
-    memory: 1024, // MB
-    timeout: 300, // seconds
-    network: 10, // MB/s
-  })
-
+  const [limits, setLimits] = useState<ResourceLimits>({ cpuPercent: 100, memoryMb: 256, timeoutSeconds: 15 })
   const terminalRef = useRef<HTMLDivElement>(null)
   const logsRef = useRef<HTMLDivElement>(null)
-  const simulationInterval = useRef<NodeJS.Timeout | null>(null)
-  const terminalInputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const eventsRef = useRef<EventSource | null>(null)
+  const receivedEventIds = useRef(new Set<number>())
   const { toast } = useToast()
 
-  // Auto-scroll terminal and logs to bottom
   useEffect(() => {
-    if (terminalRef.current) {
-      terminalRef.current.scrollTop = terminalRef.current.scrollHeight
-    }
-    if (logsRef.current) {
-      logsRef.current.scrollTop = logsRef.current.scrollHeight
-    }
-  }, [terminalHistory, logs])
+    terminalRef.current?.scrollTo({ top: terminalRef.current.scrollHeight })
+    logsRef.current?.scrollTo({ top: logsRef.current.scrollHeight })
+  }, [history, logs])
 
-  // Focus terminal input when terminal is active
   useEffect(() => {
-    if (activeTab === "console" && terminalInputRef.current) {
-      terminalInputRef.current.focus()
-    }
-  }, [activeTab, terminalHistory])
+    if (activeTab === "console") inputRef.current?.focus()
+  }, [activeTab])
 
-  // Clean up interval on unmount
-  useEffect(() => {
-    return () => {
-      if (simulationInterval.current) {
-        clearInterval(simulationInterval.current)
+  useEffect(() => () => eventsRef.current?.close(), [])
+
+  const appendTerminal = (value: string) => {
+    const lines = value.replace(/\r/g, "").split("\n")
+    setHistory((current) => [...current, ...lines].slice(-600))
+  }
+
+  const appendLog = (level: LogLevel, message: string, timestamp = new Date().toISOString()) => {
+    setLogs((current) => [...current, { level, message, timestamp }].slice(-300))
+  }
+
+  const handleEvent = (event: ExecutionEvent) => {
+    if (receivedEventIds.current.has(event.id)) return
+    receivedEventIds.current.add(event.id)
+
+    if (event.type === "stdout" || event.type === "stderr") {
+      const payload = event.payload as { text?: string }
+      if (payload.text) appendTerminal(payload.text)
+      return
+    }
+    if (event.type === "metrics") {
+      setMetrics(event.payload as ExecutionMetrics)
+      return
+    }
+    if (event.type === "progress") {
+      const payload = event.payload as { value?: number }
+      if (typeof payload.value === "number") setProgress(payload.value)
+      return
+    }
+    if (event.type === "log") {
+      const payload = event.payload as { level?: LogLevel; message?: string }
+      if (payload.message) appendLog(payload.level ?? "info", payload.message, event.timestamp)
+      return
+    }
+    if (event.type === "status") {
+      const payload = event.payload as { status?: JobStatus; exitCode?: number; error?: string }
+      if (!payload.status) return
+      setStatus(payload.status)
+      if (payload.status === "succeeded") {
+        toast({ title: "Execution completed", description: "Your isolated container exited successfully." })
+      } else if (["failed", "timed_out", "cancelled"].includes(payload.status)) {
+        toast({
+          title: payload.status === "cancelled" ? "Execution stopped" : "Execution did not complete",
+          description: payload.error ?? `Process exited with code ${payload.exitCode ?? 1}.`,
+          variant: payload.status === "cancelled" ? "default" : "destructive",
+        })
       }
-    }
-  }, [])
-
-  const getEnvironmentLabel = () => {
-    switch (environment) {
-      case "linux":
-        return "Linux Container"
-      case "kubernetes":
-        return "Kubernetes Pod"
-      case "aws":
-        return "AWS Lambda"
-      case "azure":
-        return "Azure Functions"
-      default:
-        return "Linux Container"
     }
   }
 
-  const handleRunSimulation = () => {
-    if (simulationStatus.status === "running") return
-
-    setSimulationStatus({ status: "running", startTime: new Date() })
-    setSimulationProgress(0)
-
-    // Reset metrics
-    setMetrics((prev) => prev.map((metric) => ({ ...metric, value: 0 })))
-
-    // Add initial logs
-    setLogs([
-      { timestamp: new Date(), level: "info", message: `Starting ${getEnvironmentLabel()} simulation...` },
-      { timestamp: new Date(), level: "info", message: "Initializing environment..." },
-    ])
-
-    // Update terminal
-    const newTerminalHistory = [...terminalHistory]
-    if (newTerminalHistory[newTerminalHistory.length - 1].endsWith("_")) {
-      newTerminalHistory[newTerminalHistory.length - 1] = newTerminalHistory[newTerminalHistory.length - 1].slice(0, -1)
+  const connectToEvents = (id: string) => {
+    eventsRef.current?.close()
+    const source = new EventSource(`/api/run/${id}/events`)
+    eventsRef.current = source
+    source.onmessage = (message) => {
+      try {
+        handleEvent(JSON.parse(message.data) as ExecutionEvent)
+      } catch {
+        appendLog("warning", "Received an unreadable runner event.")
+      }
     }
-
-    if (environment === "linux") {
-      newTerminalHistory.push("user@realworldcode:~/workspace$ python solution.py")
-      newTerminalHistory.push("Initializing scraper...")
-    } else if (environment === "kubernetes") {
-      newTerminalHistory.push("user@realworldcode:~/workspace$ kubectl apply -f deployment.yaml")
-      newTerminalHistory.push("deployment.apps/scraper-deployment created")
-      newTerminalHistory.push("user@realworldcode:~/workspace$ kubectl get pods")
-      newTerminalHistory.push("NAME                                 READY   STATUS    RESTARTS   AGE")
-      newTerminalHistory.push("scraper-deployment-6d5bc7b947-xvz8h  1/1     Running   0          5s")
-    } else if (environment === "aws") {
-      newTerminalHistory.push("user@realworldcode:~/workspace$ aws lambda invoke --function-name scraper output.json")
-      newTerminalHistory.push("Invoking Lambda function...")
-    } else if (environment === "azure") {
-      newTerminalHistory.push("user@realworldcode:~/workspace$ func start")
-      newTerminalHistory.push("Azure Functions Core Tools")
-      newTerminalHistory.push("Core Tools Version:       4.0.4915")
-      newTerminalHistory.push("Function Runtime Version: 4.0.1.18566")
+    source.onerror = () => {
+      if (eventsRef.current === source) void recoverExecution(id, source)
     }
+  }
 
-    setTerminalHistory(newTerminalHistory)
+  const recoverExecution = async (id: string, source: EventSource) => {
+    try {
+      const response = await fetch(`/api/job/${id}`)
+      if (!response.ok) throw new Error("The execution stream disconnected and its job is no longer available.")
+      const job = (await response.json()) as { status: JobStatus; events: ExecutionEvent[] }
 
-    // Simulate progress and metrics updates
-    simulationInterval.current = setInterval(() => {
-      setSimulationProgress((prev) => {
-        const newProgress = prev + Math.random() * 5
-        if (newProgress >= 100) {
-          // Simulation completed
-          clearInterval(simulationInterval.current!)
+      for (const event of job.events) handleEvent(event)
+      if (["succeeded", "failed", "timed_out", "cancelled"].includes(job.status)) source.close()
+      // A non-terminal EventSource reconnects automatically, and events are de-duplicated above.
+    } catch (error) {
+      source.close()
+      const message = error instanceof Error ? error.message : "The execution stream disconnected."
+      setStatus("failed")
+      appendTerminal(`runner: ${message}`)
+      appendLog("error", message)
+      toast({ title: "Execution stream disconnected", description: message, variant: "destructive" })
+    }
+  }
 
-          // 80% chance of success, 20% chance of failure
-          const success = Math.random() > 0.2
+  const startExecution = async ({ includeCommand = true }: { includeCommand?: boolean } = {}) => {
+    if (status === "queued" || status === "running") return
+    if (!code.trim()) {
+      toast({ title: "Write some code first", description: "The sandbox runs the source currently shown in the editor.", variant: "destructive" })
+      return
+    }
+    setStatus("queued")
+    setProgress(0)
+    setMetrics({ ...initialMetrics, memoryLimitMb: limits.memoryMb })
+    receivedEventIds.current.clear()
+    if (includeCommand) appendTerminal(`${prompt} run ${language}`)
 
-          if (success) {
-            setSimulationStatus({
-              status: "completed",
-              startTime: simulationStatus.startTime,
-              endTime: new Date(),
-              exitCode: 0,
-            })
-
-            setLogs((prev) => [
-              ...prev,
-              { timestamp: new Date(), level: "success", message: "Simulation completed successfully." },
-              {
-                timestamp: new Date(),
-                level: "info",
-                message: `Total execution time: ${((new Date().getTime() - (simulationStatus.startTime?.getTime() || 0)) / 1000).toFixed(2)}s`,
-              },
-            ])
-
-            // Update terminal with success message
-            const successTerminal = [...terminalHistory]
-            if (environment === "linux") {
-              successTerminal.push("Scraping completed successfully.")
-              successTerminal.push("Found 15 products, saved to results.json")
-              successTerminal.push("user@realworldcode:~/workspace$ _")
-            } else if (environment === "kubernetes") {
-              successTerminal.push("user@realworldcode:~/workspace$ kubectl logs scraper-deployment-6d5bc7b947-xvz8h")
-              successTerminal.push("Scraping completed successfully.")
-              successTerminal.push("Found 15 products, saved to results.json")
-              successTerminal.push("user@realworldcode:~/workspace$ _")
-            } else if (environment === "aws") {
-              successTerminal.push("{")
-              successTerminal.push('    "StatusCode": 200,')
-              successTerminal.push('    "ExecutedVersion": "$LATEST"')
-              successTerminal.push("}")
-              successTerminal.push("user@realworldcode:~/workspace$ cat output.json")
-              successTerminal.push('{"success": true, "products_found": 15}')
-              successTerminal.push("user@realworldcode:~/workspace$ _")
-            } else if (environment === "azure") {
-              successTerminal.push(
-                "Executing 'Functions.Scraper' (Reason='This function was programmatically called via the host APIs.', Id=1)",
-              )
-              successTerminal.push("Scraping completed successfully.")
-              successTerminal.push("Found 15 products, saved to results.json")
-              successTerminal.push("Executed 'Functions.Scraper' (Succeeded, Id=1, Duration=5123ms)")
-              successTerminal.push("user@realworldcode:~/workspace$ _")
-            }
-            setTerminalHistory(successTerminal)
-
-            toast({
-              title: "Simulation completed",
-              description: "The system simulation completed successfully.",
-            })
-          } else {
-            // Simulation failed
-            setSimulationStatus({
-              status: "failed",
-              startTime: simulationStatus.startTime,
-              endTime: new Date(),
-              exitCode: 1,
-              errorMessage: "Resource limit exceeded: Memory usage too high",
-            })
-
-            setLogs((prev) => [
-              ...prev,
-              { timestamp: new Date(), level: "error", message: "Simulation failed: Resource limit exceeded" },
-              { timestamp: new Date(), level: "error", message: "Memory usage exceeded the 1024MB limit" },
-              {
-                timestamp: new Date(),
-                level: "info",
-                message: `Total execution time: ${((new Date().getTime() - (simulationStatus.startTime?.getTime() || 0)) / 1000).toFixed(2)}s`,
-              },
-            ])
-
-            // Update terminal with error message
-            const errorTerminal = [...terminalHistory]
-            if (environment === "linux") {
-              errorTerminal.push("ERROR: Memory limit exceeded (1024MB)")
-              errorTerminal.push("Traceback (most recent call last):")
-              errorTerminal.push('  File "solution.py", line 42, in <module>')
-              errorTerminal.push("    results = scraper.scrape_products(product_ids)")
-              errorTerminal.push("MemoryError: Unable to allocate memory")
-              errorTerminal.push("user@realworldcode:~/workspace$ _")
-            } else if (environment === "kubernetes") {
-              errorTerminal.push("user@realworldcode:~/workspace$ kubectl logs scraper-deployment-6d5bc7b947-xvz8h")
-              errorTerminal.push("ERROR: Memory limit exceeded (1024MB)")
-              errorTerminal.push("Pod has been terminated due to memory limit")
-              errorTerminal.push("user@realworldcode:~/workspace$ kubectl get pods")
-              errorTerminal.push("NAME                                 READY   STATUS    RESTARTS   AGE")
-              errorTerminal.push("scraper-deployment-6d5bc7b947-xvz8h  0/1     OOMKilled 0          45s")
-              errorTerminal.push("user@realworldcode:~/workspace$ _")
-            } else if (environment === "aws") {
-              errorTerminal.push("{")
-              errorTerminal.push('    "StatusCode": 500,')
-              errorTerminal.push('    "FunctionError": "Unhandled",')
-              errorTerminal.push('    "ExecutedVersion": "$LATEST"')
-              errorTerminal.push("}")
-              errorTerminal.push("user@realworldcode:~/workspace$ cat output.json")
-              errorTerminal.push('{"errorMessage": "Memory limit exceeded (1024MB)", "errorType": "MemoryError"}')
-              errorTerminal.push("user@realworldcode:~/workspace$ _")
-            } else if (environment === "azure") {
-              errorTerminal.push(
-                "Executing 'Functions.Scraper' (Reason='This function was programmatically called via the host APIs.', Id=1)",
-              )
-              errorTerminal.push("ERROR: Memory limit exceeded (1024MB)")
-              errorTerminal.push("Executed 'Functions.Scraper' (Failed, Id=1, Duration=3214ms)")
-              errorTerminal.push("user@realworldcode:~/workspace$ _")
-            }
-            setTerminalHistory(errorTerminal)
-
-            toast({
-              title: "Simulation failed",
-              description: "The system simulation failed due to resource limits.",
-              variant: "destructive",
-            })
-          }
-
-          return 100
-        }
-        return newProgress
+    try {
+      const response = await fetch("/api/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ problemId, language, code, resourceLimits: limits }),
       })
+      const payload = (await response.json()) as { jobId?: string; error?: string }
+      if (!response.ok || !payload.jobId) throw new Error(payload.error ?? "The runner did not return a job id.")
 
-      // Update metrics
-      setMetrics((prev) =>
-        prev.map((metric) => {
-          let newValue
-
-          if (metric.name === "CPU Usage") {
-            // CPU usage increases gradually then fluctuates
-            newValue = Math.min(metric.value + Math.random() * 15, 100)
-          } else if (metric.name === "Memory Usage") {
-            // Memory usage increases steadily
-            newValue = Math.min(metric.value + Math.random() * 50, 1024)
-          } else if (metric.name === "Network I/O") {
-            // Network I/O fluctuates
-            newValue = Math.min(Math.max(metric.value + (Math.random() * 2 - 1), 0), 10)
-          } else if (metric.name === "Disk I/O") {
-            // Disk I/O spikes occasionally
-            const spike = Math.random() > 0.8
-            newValue = spike
-              ? Math.min(metric.value + Math.random() * 30, 100)
-              : Math.max(metric.value - Math.random() * 10, 0)
-          } else {
-            newValue = metric.value
-          }
-
-          return { ...metric, value: newValue }
-        }),
-      )
-
-      // Add logs periodically
-      if (Math.random() > 0.7) {
-        const logMessages = [
-          { level: "info", message: "Processing batch of products..." },
-          { level: "info", message: "Sending HTTP request to target website..." },
-          { level: "info", message: "Parsing HTML response..." },
-          { level: "info", message: "Extracting product details..." },
-          { level: "info", message: "Saving results to database..." },
-          { level: "warning", message: "Rate limiting detected, backing off..." },
-          { level: "warning", message: "High memory usage detected..." },
-          { level: "info", message: "Rotating proxy to avoid detection..." },
-        ]
-
-        const randomLog = logMessages[Math.floor(Math.random() * logMessages.length)]
-        setLogs((prev) => [
-          ...prev,
-          { timestamp: new Date(), level: randomLog.level as any, message: randomLog.message },
-        ])
-      }
-    }, 500)
-  }
-
-  const handlePauseSimulation = () => {
-    if (simulationStatus.status !== "running") return
-
-    if (simulationInterval.current) {
-      clearInterval(simulationInterval.current)
+      setJobId(payload.jobId)
+      connectToEvents(payload.jobId)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to reach the code runner."
+      setStatus("failed")
+      appendTerminal(`runner: ${message}`)
+      appendLog("error", message)
+      toast({ title: "Execution unavailable", description: message, variant: "destructive" })
     }
-
-    setSimulationStatus({ ...simulationStatus, status: "paused" })
-    setLogs((prev) => [...prev, { timestamp: new Date(), level: "warning", message: "Simulation paused by user" }])
-
-    toast({
-      title: "Simulation paused",
-      description: "The system simulation has been paused.",
-    })
   }
 
-  const handleResumeSimulation = () => {
-    if (simulationStatus.status !== "paused") return
-
-    setSimulationStatus({ ...simulationStatus, status: "running" })
-    setLogs((prev) => [...prev, { timestamp: new Date(), level: "info", message: "Simulation resumed" }])
-
-    // Resume the simulation
-    handleRunSimulation()
-
-    toast({
-      title: "Simulation resumed",
-      description: "The system simulation has been resumed.",
-    })
-  }
-
-  const handleStopSimulation = () => {
-    if (simulationStatus.status !== "running" && simulationStatus.status !== "paused") return
-
-    if (simulationInterval.current) {
-      clearInterval(simulationInterval.current)
+  const stopExecution = async () => {
+    if (!jobId || (status !== "queued" && status !== "running")) return
+    try {
+      await fetch(`/api/job/${jobId}`, { method: "DELETE" })
+    } catch {
+      appendLog("error", "Unable to request execution cancellation.")
     }
-
-    setSimulationStatus({
-      status: "idle",
-      startTime: simulationStatus.startTime,
-      endTime: new Date(),
-    })
-
-    setLogs((prev) => [...prev, { timestamp: new Date(), level: "warning", message: "Simulation stopped by user" }])
-
-    toast({
-      title: "Simulation stopped",
-      description: "The system simulation has been stopped.",
-    })
   }
 
-  const handleResetSimulation = () => {
-    if (simulationStatus.status === "running") {
-      if (simulationInterval.current) {
-        clearInterval(simulationInterval.current)
-      }
-    }
+  const readWorkspace = async (fileName?: string) => {
+    const url = fileName
+      ? `/api/fs/${encodeURIComponent(problemId)}/${encodeURIComponent(fileName)}`
+      : `/api/fs/${encodeURIComponent(problemId)}`
+    const response = await fetch(url)
+    const payload = (await response.json()) as { files?: { name: string }[]; content?: string; error?: string }
+    if (!response.ok) appendTerminal(`runner: ${payload.error ?? "Unable to read workspace."}`)
+    else if (fileName) appendTerminal(payload.content ?? "")
+    else appendTerminal((payload.files ?? []).map((file) => file.name).join("  "))
+  }
 
-    setSimulationStatus({ status: "idle" })
-    setSimulationProgress(0)
-    setMetrics((prev) => prev.map((metric) => ({ ...metric, value: 0 })))
+  const handleTerminalInput = async (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter") return
+    const command = terminalInput.trim()
+    if (!command) return
+    setTerminalInput("")
+    appendTerminal(`${prompt} ${command}`)
+
+    if (command === "clear") setHistory([])
+    else if (command === "ls" || command === "ls -la") await readWorkspace()
+    else if (/^cat\s+[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(command)) await readWorkspace(command.slice(4).trim())
+    else if (command === "run" || command === `run ${language}`) await startExecution({ includeCommand: false })
+    else if (command === "help") appendTerminal(`Available commands: ls, cat <file>, run, run ${language}, clear, help`)
+    else appendTerminal("runner: interactive shells and cloud CLIs are disabled. Submit code through the isolated runner.")
+  }
+
+  const reset = () => {
+    eventsRef.current?.close()
+    eventsRef.current = null
+    receivedEventIds.current.clear()
+    setStatus("idle")
+    setJobId(null)
+    setHistory([])
     setLogs([])
-
-    // Reset terminal to initial state
-    setTerminalHistory([
-      "user@realworldcode:~/workspace$ ls -la",
-      "total 20",
-      "drwxr-xr-x 4 user user 4096 May 14 12:54 .",
-      "drwxr-xr-x 3 user user 4096 May 14 12:50 ..",
-      "-rw-r--r-- 1 user user 2184 May 14 12:52 solution.py",
-      "-rw-r--r-- 1 user user 1024 May 14 12:53 test_data.json",
-      "drwxr-xr-x 2 user user 4096 May 14 12:51 .git",
-      "user@realworldcode:~/workspace$ _",
-    ])
-
-    toast({
-      title: "Simulation reset",
-      description: "The system simulation has been reset.",
-    })
+    setProgress(0)
+    setMetrics({ ...initialMetrics, memoryLimitMb: limits.memoryMb })
   }
 
-  const handleTerminalInput = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && terminalInput.trim()) {
-      const newTerminalHistory = [...terminalHistory]
-
-      // Replace the cursor placeholder
-      if (newTerminalHistory[newTerminalHistory.length - 1].endsWith("_")) {
-        newTerminalHistory[newTerminalHistory.length - 1] = newTerminalHistory[newTerminalHistory.length - 1].slice(
-          0,
-          -1,
-        )
-      }
-
-      // Add the command
-      newTerminalHistory[newTerminalHistory.length - 1] += terminalInput
-
-      // Process the command
-      if (terminalInput === "clear") {
-        setTerminalHistory(["user@realworldcode:~/workspace$ _"])
-      } else {
-        // Add command output based on the input
-        if (terminalInput === "ls") {
-          newTerminalHistory.push("solution.py  test_data.json")
-        } else if (terminalInput === "cat solution.py") {
-          newTerminalHistory.push("import requests")
-          newTerminalHistory.push("from bs4 import BeautifulSoup")
-          newTerminalHistory.push("import json")
-          newTerminalHistory.push("import time")
-          newTerminalHistory.push("import random")
-          newTerminalHistory.push("")
-          newTerminalHistory.push("class AmazonScraper:")
-          newTerminalHistory.push("    # ... code omitted for brevity ...")
-        } else if (terminalInput === "cat test_data.json") {
-          newTerminalHistory.push("{")
-          newTerminalHistory.push('  "product_ids": ["B08N5KWB9H", "B07QDYSSF5"]')
-          newTerminalHistory.push("}")
-        } else if (terminalInput.startsWith("cd ")) {
-          newTerminalHistory.push(`bash: cd: ${terminalInput.slice(3)}: No such file or directory`)
-        } else if (terminalInput === "help") {
-          newTerminalHistory.push("Available commands: ls, cat, clear, help")
-        } else {
-          newTerminalHistory.push(`bash: ${terminalInput.split(" ")[0]}: command not found`)
-        }
-
-        // Add new prompt
-        newTerminalHistory.push("user@realworldcode:~/workspace$ _")
-        setTerminalHistory(newTerminalHistory)
-      }
-
-      setTerminalInput("")
-
-      // Focus the input again after processing
-      setTimeout(() => {
-        if (terminalInputRef.current) {
-          terminalInputRef.current.focus()
-        }
-      }, 0)
-    }
+  const statusStyle: Record<typeof status, string> = {
+    idle: "bg-slate-500/20 text-slate-400",
+    queued: "bg-yellow-500/20 text-yellow-500",
+    running: "bg-green-500/20 text-green-500",
+    succeeded: "bg-green-500/20 text-green-500",
+    failed: "bg-red-500/20 text-red-500",
+    timed_out: "bg-red-500/20 text-red-500",
+    cancelled: "bg-slate-500/20 text-slate-400",
   }
-
-  const formatTimestamp = (date: Date) => {
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-  }
-
-  const getLogIcon = (level: string) => {
-    switch (level) {
-      case "info":
-        return <FileText className="h-4 w-4 text-accent-blue" />
-      case "warning":
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />
-      case "error":
-        return <XCircle className="h-4 w-4 text-red-500" />
-      case "success":
-        return <CheckCircle className="h-4 w-4 text-green-500" />
-      default:
-        return <FileText className="h-4 w-4 text-accent-blue" />
-    }
-  }
-
-  const getStatusBadge = () => {
-    switch (simulationStatus.status) {
-      case "idle":
-        return <Badge className="bg-gray-500/20 text-gray-400">Idle</Badge>
-      case "running":
-        return <Badge className="bg-green-500/20 text-green-500">Running</Badge>
-      case "paused":
-        return <Badge className="bg-yellow-500/20 text-yellow-500">Paused</Badge>
-      case "completed":
-        return <Badge className="bg-accent-blue/20 text-accent-blue">Completed</Badge>
-      case "failed":
-        return <Badge className="bg-red-500/20 text-red-500">Failed</Badge>
-      default:
-        return <Badge className="bg-gray-500/20 text-gray-400">Idle</Badge>
-    }
-  }
+  const isRunning = status === "queued" || status === "running"
 
   return (
     <Card className="w-full code-editor">
       <CardHeader className="code-editor-header">
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <CardTitle>Live System Simulation</CardTitle>
-            <CardDescription>Test your code in a real environment with resource constraints</CardDescription>
+            <CardTitle>Isolated code runner</CardTitle>
+            <CardDescription>Docker sandbox · network disabled · server-enforced resource limits</CardDescription>
           </div>
-          <div className="flex items-center gap-2">
-            {getStatusBadge()}
-            <Select value={environment} onValueChange={setEnvironment} disabled={simulationStatus.status === "running"}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Select environment" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="linux">Linux Container</SelectItem>
-                <SelectItem value="kubernetes">Kubernetes Pod</SelectItem>
-                <SelectItem value="aws">AWS Lambda</SelectItem>
-                <SelectItem value="azure">Azure Functions</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <Badge className={statusStyle[status]}>{status.replace("_", " ")}</Badge>
         </div>
       </CardHeader>
-      <CardContent className="p-0">
-        {/* Progress bar for running simulation */}
-        {(simulationStatus.status === "running" || simulationStatus.status === "paused") && (
-          <div className="px-4 pt-4">
-            <div className="flex justify-between text-sm mb-1">
-              <span className="text-muted">Simulation progress</span>
-              <span className="font-medium">{Math.round(simulationProgress)}%</span>
-            </div>
-            <Progress value={simulationProgress} className="h-2" />
-          </div>
-        )}
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-3">
+          <LimitSelect value={limits.cpuPercent} disabled={isRunning} values={[25, 50, 100]} label="CPU" suffix="%" onChange={(cpuPercent) => setLimits((current) => ({ ...current, cpuPercent }))} />
+          <LimitSelect value={limits.memoryMb} disabled={isRunning} values={[64, 256, 512, 1024]} label="Memory" suffix=" MB" onChange={(memoryMb) => setLimits((current) => ({ ...current, memoryMb }))} />
+          <LimitSelect value={limits.timeoutSeconds} disabled={isRunning} values={[5, 15, 30]} label="Timeout" suffix="s" onChange={(timeoutSeconds) => setLimits((current) => ({ ...current, timeoutSeconds }))} />
+        </div>
 
-        {/* Resource limits */}
-        {simulationStatus.status === "idle" && (
-          <div className="p-4 border-b border-border">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium">Resource Limits</h3>
-              <Button variant="ghost" size="sm">
-                <Settings className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="p-2 bg-card rounded-md">
-                <div className="flex items-center gap-2 mb-1">
-                  <Cpu className="h-4 w-4 text-accent-blue" />
-                  <span className="text-sm">CPU Limit</span>
-                </div>
-                <p className="text-lg font-medium">{resourceLimits.cpu}%</p>
-              </div>
-              <div className="p-2 bg-card rounded-md">
-                <div className="flex items-center gap-2 mb-1">
-                  <HardDrive className="h-4 w-4 text-accent-purple" />
-                  <span className="text-sm">Memory Limit</span>
-                </div>
-                <p className="text-lg font-medium">{resourceLimits.memory} MB</p>
-              </div>
-              <div className="p-2 bg-card rounded-md">
-                <div className="flex items-center gap-2 mb-1">
-                  <Clock className="h-4 w-4 text-accent-orange" />
-                  <span className="text-sm">Timeout</span>
-                </div>
-                <p className="text-lg font-medium">{resourceLimits.timeout}s</p>
-              </div>
-              <div className="p-2 bg-card rounded-md">
-                <div className="flex items-center gap-2 mb-1">
-                  <Network className="h-4 w-4 text-green-500" />
-                  <span className="text-sm">Network Limit</span>
-                </div>
-                <p className="text-lg font-medium">{resourceLimits.network} MB/s</p>
-              </div>
-            </div>
-          </div>
-        )}
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void startExecution()} disabled={isRunning || !code.trim()}><Play className="mr-2 h-4 w-4" />Run in sandbox</Button>
+          <Button variant="outline" onClick={stopExecution} disabled={!isRunning}><Square className="mr-2 h-4 w-4" />Stop</Button>
+          <Button variant="ghost" onClick={reset} disabled={isRunning}>Reset view</Button>
+        </div>
+
+        {isRunning && <div><div className="mb-1 flex justify-between text-sm text-muted"><span>Runner progress</span><span>{progress}%</span></div><Progress value={progress} className="h-2" /></div>}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="px-4 pt-4">
-            <TabsList className="w-full">
-              <TabsTrigger value="console" className="flex-1">
-                <Terminal className="h-4 w-4 mr-2" />
-                Console
-              </TabsTrigger>
-              <TabsTrigger value="logs" className="flex-1">
-                <FileText className="h-4 w-4 mr-2" />
-                Logs
-              </TabsTrigger>
-              <TabsTrigger value="metrics" className="flex-1">
-                <BarChart className="h-4 w-4 mr-2" />
-                Metrics
-              </TabsTrigger>
-            </TabsList>
-          </div>
-
-          <TabsContent value="console" className="p-4">
-            <div
-              className="h-[300px] overflow-y-auto bg-black text-white rounded-md p-2 font-mono text-sm"
-              ref={terminalRef}
-            >
-              {terminalHistory.map((line, index) => (
-                <div key={index}>{line}</div>
-              ))}
-              <div className="flex items-center">
-                user@realworldcode:~/workspace$
-                <input
-                  type="text"
-                  value={terminalInput}
-                  onChange={(e) => setTerminalInput(e.target.value)}
-                  onKeyDown={handleTerminalInput}
-                  className="bg-transparent border-none outline-none flex-1 text-white"
-                  ref={terminalInputRef}
-                />
-              </div>
+          <TabsList className="w-full">
+            <TabsTrigger value="console" className="flex-1"><Terminal className="mr-2 h-4 w-4" />Console</TabsTrigger>
+            <TabsTrigger value="logs" className="flex-1"><FileText className="mr-2 h-4 w-4" />Logs</TabsTrigger>
+            <TabsTrigger value="metrics" className="flex-1"><Cpu className="mr-2 h-4 w-4" />Metrics</TabsTrigger>
+          </TabsList>
+          <TabsContent value="console">
+            <div ref={terminalRef} className="h-[300px] overflow-y-auto rounded-md bg-black p-3 font-mono text-sm text-white" aria-live="polite">
+              {history.map((line, index) => <div key={`${index}-${line}`}>{line || "\u00a0"}</div>)}
+              <label className="flex items-center gap-2"><span>{prompt}</span><input ref={inputRef} value={terminalInput} onChange={(event) => setTerminalInput(event.target.value)} onKeyDown={handleTerminalInput} className="min-w-0 flex-1 bg-transparent outline-none" aria-label="Read-only workspace command" autoComplete="off" /></label>
             </div>
           </TabsContent>
-
-          <TabsContent value="logs" className="p-4">
-            <div className="h-[300px] overflow-y-auto rounded-md p-2 font-mono text-sm" ref={logsRef}>
-              {logs.map((log, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">{formatTimestamp(log.timestamp)}</span>
-                  {getLogIcon(log.level)}
-                  <span className={log.level === "error" ? "text-red-500" : ""}>{log.message}</span>
-                </div>
-              ))}
+          <TabsContent value="logs">
+            <div ref={logsRef} className="h-[300px] space-y-2 overflow-y-auto rounded-md p-2 font-mono text-sm" aria-live="polite">
+              {logs.length === 0 ? <p className="text-muted">Runner logs will appear here.</p> : logs.map((log, index) => <LogLine key={`${log.timestamp}-${index}`} log={log} />)}
             </div>
           </TabsContent>
-
-          <TabsContent value="metrics" className="p-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {metrics.map((metric) => (
-                <Card key={metric.name}>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      {metric.icon}
-                      {metric.name}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center justify-between">
-                      <span className="text-2xl font-bold">{metric.value.toFixed(0)}</span>
-                      <span className="text-muted-foreground">{metric.unit}</span>
-                    </div>
-                    <Progress value={(metric.value / metric.max) * 100} className="mt-2" />
-                  </CardContent>
-                </Card>
-              ))}
+          <TabsContent value="metrics">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Metric icon={<Cpu className="h-4 w-4 text-blue-400" />} name="CPU" value={`${metrics.cpuPercent.toFixed(1)}%`} progress={Math.min(metrics.cpuPercent, 100)} />
+              <Metric icon={<HardDrive className="h-4 w-4 text-purple-400" />} name="Memory" value={`${metrics.memoryMb.toFixed(1)} / ${metrics.memoryLimitMb} MB`} progress={(metrics.memoryMb / metrics.memoryLimitMb) * 100} />
+              <Metric icon={<Network className="h-4 w-4 text-green-500" />} name="Network" value="Disabled" progress={0} />
+              <Metric icon={<HardDrive className="h-4 w-4 text-orange-400" />} name="Disk I/O" value={formatBytes(metrics.diskBytes)} progress={0} />
             </div>
           </TabsContent>
         </Tabs>
       </CardContent>
-      <div className="flex justify-between items-center p-4">
-        <Button onClick={handleRunSimulation} disabled={simulationStatus.status === "running"}>
-          {simulationStatus.status === "running" ? "Running..." : "Run Simulation"}
-        </Button>
-        <div>
-          {simulationStatus.status === "running" && (
-            <Button variant="secondary" onClick={handlePauseSimulation}>
-              Pause
-            </Button>
-          )}
-          {simulationStatus.status === "paused" && (
-            <Button variant="secondary" onClick={handleResumeSimulation}>
-              Resume
-            </Button>
-          )}
-          {(simulationStatus.status === "running" || simulationStatus.status === "paused") && (
-            <Button variant="destructive" onClick={handleStopSimulation}>
-              Stop
-            </Button>
-          )}
-          {(simulationStatus.status === "idle" ||
-            simulationStatus.status === "completed" ||
-            simulationStatus.status === "failed") && (
-            <Button variant="outline" onClick={handleResetSimulation}>
-              Reset
-            </Button>
-          )}
-        </div>
-      </div>
     </Card>
   )
+}
+
+function LimitSelect({ value, disabled, values, label, suffix, onChange }: { value: number; disabled: boolean; values: number[]; label: string; suffix: string; onChange: (value: number) => void }) {
+  return <Select value={String(value)} onValueChange={(next) => onChange(Number(next))} disabled={disabled}><SelectTrigger><SelectValue placeholder={`${label} limit`} /></SelectTrigger><SelectContent>{values.map((option) => <SelectItem key={option} value={String(option)}>{label}: {option}{suffix}</SelectItem>)}</SelectContent></Select>
+}
+
+function LogLine({ log }: { log: LogEntry }) {
+  const icon = log.level === "success" ? <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-green-500" /> : log.level === "warning" || log.level === "error" ? <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${log.level === "error" ? "text-red-500" : "text-yellow-500"}`} /> : <FileText className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" />
+  return <div className="flex gap-2"><span className="text-muted">{new Date(log.timestamp).toLocaleTimeString()}</span>{icon}<span className={log.level === "error" ? "text-red-400" : ""}>{log.message}</span></div>
+}
+
+function Metric({ icon, name, value, progress }: { icon: ReactNode; name: string; value: string; progress: number }) {
+  return <div className="rounded-md border p-3"><div className="mb-2 flex items-center gap-2 text-sm text-muted">{icon}{name}</div><p className="font-mono text-sm">{value}</p><Progress value={Math.max(0, Math.min(progress, 100))} className="mt-2 h-1.5" /></div>
+}
+
+function formatBytes(value: number) {
+  if (value < 1024) return `${value.toFixed(0)} B`
+  if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / 1024 ** 2).toFixed(1)} MB`
 }
